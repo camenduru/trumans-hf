@@ -3,27 +3,42 @@ import {OrbitControls} from 'https://unpkg.com/three@0.127.0/examples/jsm/contro
 import {GLTFLoader} from 'https://unpkg.com/three@0.127.0/examples/jsm/loaders/GLTFLoader.js';
 import {DragControls} from 'https://unpkg.com/three@0.127.0/examples/jsm/controls/DragControls.js'
 
-let scene, camera, renderer, cube, isDrawing, pointerDown;
+
+let scene, camera, renderer, cube, isDrawing, pointerDown, controls;
 let frameIndex = 0;
 let pointCloudData;
-let showAnimation = false;
+const now = Date.now();
 let pointCloud
+let quaternionStart, positionStart;
+let isGenerating = false;
+
 const allModelsUrl = ['background.glb', 'basin.glb', 'bed.glb', 'flower.glb', 'kitchen_chair_1.glb', 'kitchen_chair_2.glb', 'office_chair.glb', 'sofa.glb', 'table.glb', 'wc.glb'];
 // const allModelsUrl = ['table.glb']
 const allModels_dict = {}
 const allModels_list = []
+let initLoc = {}
 
 function init() {
     scene = new THREE.Scene();
     camera = new THREE.PerspectiveCamera(45, window.innerWidth / window.innerHeight, 0.1, 100);
-    camera.position.set(9, 6, -9);
+    // camera.position.set(9, 6, -9);
+    camera.position.set(3, 13, 0);
+
+
+    // var qm = new THREE.Quaternion(0.1, 0.2, 0.3, 0.4);
+    // camera.quaternion.copy(qm)
+    // camera.updateMatrixWorld();
+
     scene.add(camera)
 
     renderer = new THREE.WebGLRenderer({alpha: true, antialias: true});
     renderer.setSize(window.innerWidth, window.innerHeight);
     renderer.shadowMap.enabled = true;
     renderer.shadowMap.type = THREE.PCFSoftShadowMap; // default THREE.PCFShadowMap
-    document.body.appendChild(renderer.domElement);
+    // document.body.appendChild(renderer.domElement);
+
+    const canvasContainer = document.getElementById('canvas-container');
+    canvasContainer.appendChild(renderer.domElement);
 
     const planeGeometry = new THREE.PlaneGeometry(1000, 1000);
     const plane = new THREE.Mesh(planeGeometry, new THREE.MeshBasicMaterial({ color: 0x000000, opacity: 0.25, transparent: true }));
@@ -33,13 +48,16 @@ function init() {
 
     let points = [];
     const line_geometry = new THREE.BufferGeometry().setFromPoints(points);
-    const line_material = new THREE.LineBasicMaterial({ color: 0x0000ff });
+    const line_material = new THREE.LineBasicMaterial({ color: 0x0000ff, linewidth: 3 });
     const line = new THREE.Line(line_geometry, line_material);
     scene.add(line);
 
 
-    const controls = new OrbitControls(camera, renderer.domElement);
-    controls.addEventListener('change', render);
+    controls = new OrbitControls(camera, renderer.domElement);
+    // controls.addEventListener('change', render);
+
+    // const quaternion = new THREE.Quaternion(-0.707, 0, 0, 0.707)
+    // camera.quaternion.copy(quaternion)
 
     // const light = new THREE.HemisphereLight(0xffffbb, 0x080820, 1);
     // scene.add(light);
@@ -59,7 +77,7 @@ function init() {
     const geometry = new THREE.BufferGeometry();
     const points_frame = new Float32Array(1048 * 3);
     geometry.setAttribute('position', new THREE.BufferAttribute(points_frame, 3));
-    const material = new THREE.PointsMaterial({ size: 0.04, color: 0x00ffff });
+    const material = new THREE.PointsMaterial({ size: 0.04, color: 0x2020e0 });
     pointCloud = new THREE.Points(geometry, material);
     scene.add(pointCloud);
 
@@ -69,14 +87,20 @@ function init() {
         assetLoader.load('/static/'.concat(allModelsUrl[i]), function (gltf) {
             const model = gltf.scene;
             if (i !== 0) {allModels_dict[allModelsUrl[i]] = model;
-                allModels_list.push(model);}
+                allModels_list.push(model);
+                initLoc[allModelsUrl[i]] = model.children[0].position.clone()
+            }
 
             scene.add(model);
         }, undefined, function (error) {
             console.error(error);
         });
-
     }
+
+    // for (let [key, value] of Object.entries(allModels_dict)) {
+    //     initLoc[key] = value.children[0].position
+    // }
+
 
     const dragControls = new DragControls(allModels_list, camera, renderer.domElement);
 
@@ -115,10 +139,13 @@ function init() {
     const mouse = new THREE.Vector2();
     // Update the mouse vector with the current mouse position
     document.addEventListener('pointermove', function (event) {
-        mouse.x = (event.x / renderer.domElement.clientWidth) * 2 - 1;
-        mouse.y = -(event.y / renderer.domElement.clientHeight) * 2 + 1;
 
-        if (isDrawing && pointerDown) {
+        const rect = renderer.domElement.getBoundingClientRect();
+
+        mouse.x = ((event.x - rect.left) / rect.width) * 2 - 1;
+        mouse.y = -((event.y - rect.top) / rect.height) * 2 + 1;
+
+        if (isDrawing && pointerDown && points.length < 500) {
             raycaster.setFromCamera(mouse, camera);
             const intersects = raycaster.intersectObject(plane);
             const point = intersects[0].point;
@@ -136,28 +163,53 @@ function init() {
         isDrawing = false;
         controls.enabled = true
         dragControls.enabled = true
+        document.getElementById('toggleDraw').innerHTML = "Draw Trajectory";
 
     }, false);
 
-    document.getElementById('buttonOverlaySecond').addEventListener('click', toggleDrawing);
+    document.getElementById('toggleDraw').addEventListener('click', toggleDrawing);
     isDrawing = false;
 
 
     function toggleDrawing() {
+        controls.enabled = false
+        quaternionStart = camera.quaternion.clone();
+        positionStart = camera.position.clone();
         points = []
         isDrawing = true;
-        controls.enabled = false
+
         dragControls.enabled = false
+
+        document.getElementById('toggleDraw').innerHTML = "Drawing";
     }
 
-    document.getElementById('buttonOverlay').addEventListener('click', runGeneration);
+    document.getElementById('reset').addEventListener('click', reset);
+
+    function reset() {
+        points = [];
+        line_geometry.setFromPoints(points);
+
+        for (let [key, value] of Object.entries(allModels_dict)) {
+            value.children[0].position.set(initLoc[key].x, initLoc[key].y, initLoc[key].z);
+        }
+        document.getElementById('toggleDraw').innerHTML = "Draw Trajectory";
+        pointCloudData = null;
+        pointCloud.geometry.attributes.position.array = new Float32Array(1048 * 3);
+        pointCloud.geometry.attributes.position.needsUpdate = true;
+        render()
+    }
+
+    document.getElementById('generateMotion').addEventListener('click', runGeneration);
+
     function runGeneration() {
+        if (!points.length || isGenerating) {return}
+        isGenerating = true;
+
         const userData = {}
         for (let [key, value] of Object.entries(allModels_dict)) {
             userData[key] = value.children[0].position
         }
         userData['trajectory'] = points
-        console.log(userData)
 
         fetch('/move_cube', {
             method: 'POST',
@@ -169,6 +221,8 @@ function init() {
         .then(response => response.json())
         .then(data => {
             pointCloudData = data
+            document.getElementById("generateMotion").innerHTML = "Generate Motion";
+            isGenerating = false;
         })
         .catch((error) => {
             console.error('Error:', error);
@@ -190,13 +244,12 @@ function init() {
     animate();
 }
 
-function updatePointCloud() {
-    if (!pointCloudData) {return}
 
-    // const geometry = new THREE.BufferGeometry();
-    // const material = new THREE.PointsMaterial({ size: 0.1, color: 0x00ff00 });
-    // const pointsCloud = new THREE.Points(geometry, material);
-    // scene.add(pointsCloud);
+function updatePointCloud() {
+    if (!pointCloudData) {
+
+        return;
+    }
     const positions = pointCloud.geometry.attributes.position.array;
     const frameData = pointCloudData[frameIndex];
 
@@ -212,8 +265,18 @@ function updatePointCloud() {
 }
 
 function animate() {
+    // requestAnimationFrame(animate);
+    setTimeout(() => {
     requestAnimationFrame(animate);
+  }, 1000 / 25);
     updatePointCloud()
+
+    if (isGenerating) {
+        let dotNum = parseInt((Date.now() - now) / 500) % 8
+        const dot = Array(dotNum * 2).join('.')
+        document.getElementById("generateMotion").innerHTML = "Loading" + dot;
+    }
+
     renderer.render(scene, camera);
 }
 
