@@ -6,11 +6,14 @@
     display: flex;
     height: 100vh; /* Full viewport height */
   }
-  .left-column {
-    width: 80px; /* Fixed width */
-    height: 100%;
-    background-color: #f2f2f2;
-    /* More styles for the left column content */
+  left-column {
+    width: 100px; /* Fixed width */
+    background-color: #f2f2f2; /* Just for demonstration */
+  }
+
+  .left-column img {
+    width: auto; /* Make the image responsive to the container width */
+    height: 100%; /* Maintain aspect ratio */
   }
   .right-column {
     flex-grow: 1; /* Fill the remaining width */
