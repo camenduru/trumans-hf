@@ -145,7 +145,7 @@ function init() {
         mouse.x = ((event.x - rect.left) / rect.width) * 2 - 1;
         mouse.y = -((event.y - rect.top) / rect.height) * 2 + 1;
 
-        if (isDrawing && pointerDown && points.length < 500) {
+        if (isDrawing && pointerDown && points.length < 200) {
             raycaster.setFromCamera(mouse, camera);
             const intersects = raycaster.intersectObject(plane);
             const point = intersects[0].point;
